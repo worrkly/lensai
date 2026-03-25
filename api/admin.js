@@ -1,4 +1,3 @@
-// api/admin.js — Admin API with persistent Redis stats
 const REDIS_URL = process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN;
 
@@ -11,13 +10,13 @@ async function redis(...args) {
 }
 
 function authenticate(req) {
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  const adminSecret   = process.env.ADMIN_SECRET_KEY;
-  if (!adminPassword || !adminSecret) return false;
-  const authHeader = req.headers["authorization"] || "";
-  const bearer = authHeader.match(/^Bearer (.+)$/i,);
-  const urlSecret = req.query?.secret || req.body?.secret || "";
-  return bearer && bearer[1] === adminPassword && urlSecret === adminSecret;
+  const pw = process.env.ADMIN_PASSWORD;
+  const sk = process.env.ADMIN_SECRET_KEY;
+  if (!pw || !sk) return false;
+  const auth = req.headers["authorization"] || "";
+  const m = auth.match(/^Bearer (.+)$/i);
+  const secret = req.query?.secret || req.body?.secret || "";
+  return m && m[1] === pw && secret === sk;
 }
 
 function getWeekKey() {
@@ -35,7 +34,7 @@ function maskIP(ip) {
   return ip.slice(0, 8) + "****";
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -57,6 +56,7 @@ export default async function handler(req, res) {
       redis("GET", "wl:stats:type:code"),
       redis("GET", "wl:stats:type:video"),
     ]);
+
     const last7 = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
@@ -64,22 +64,27 @@ export default async function handler(req, res) {
       const count = await redis("GET", `wl:stats:day:${key}`);
       last7.push({ date: key, count: parseInt(count || "0") });
     }
-    const ips = await redis("SMEMBERS", "wl:ips:seen") || [];
+
+    const ips = (await redis("SMEMBERS", "wl:ips:seen")) || [];
     const ipList = Array.isArray(ips) ? ips : [ips].filter(Boolean);
     const userList = [];
     for (const ip of ipList.slice(0, 50)) {
-      const thisWeek = parseInt(await redis("GET", `wl:usage:${ip}:${weekKey}`) || "0");
-      const allTime  = parseInt(await redis("GET", `wl:ip:${ip}:total`) || "0");
+      const thisWeek = parseInt((await redis("GET", `wl:ip:${ip}:${weekKey}`)) || "0");
+      const allTime = parseInt((await redis("GET", `wl:ip:${ip}:total`)) || "0");
       userList.push({ ip: maskIP(ip), thisWeek, totalAllTime: allTime });
     }
     userList.sort((a, b) => b.thisWeek - a.thisWeek);
+
     return res.status(200).json({
       totalScans: parseInt(total || "0"),
       blockedRequests: parseInt(blocked || "0"),
       estimatedCostUSD: parseFloat(parseFloat(costRaw || "0").toFixed(4)),
       weeklyLimit: parseInt(limit || "2"),
       activeUsers: ipList.length,
-      scansByType: { text: parseInt(tText||"0"), image: parseInt(tImage||"0"), audio: parseInt(tAudio||"0"), code: parseInt(tCode||"0"), video: parseInt(tVideo||"0") },
+      scansByType: {
+        text: parseInt(tText || "0"), image: parseInt(tImage || "0"),
+        audio: parseInt(tAudio || "0"), code: parseInt(tCode || "0"), video: parseInt(tVideo || "0")
+      },
       last7Days: last7,
       usageList: userList,
     });
@@ -95,14 +100,14 @@ export default async function handler(req, res) {
   if (req.method === "POST" && action === "reset") {
     const { maskedIp } = req.body || {};
     if (maskedIp === "__all__") {
-      const ips = await redis("SMEMBERS", "wl:ips:seen") || [];
+      const ips = (await redis("SMEMBERS", "wl:ips:seen")) || [];
       const ipList = Array.isArray(ips) ? ips : [ips].filter(Boolean);
       const weekKey = getWeekKey();
-      await Promise.all(ipList.map(ip => redis("SET", `wl:usage:${ip}:${weekKey}`, "0")));
+      await Promise.all(ipList.map(ip => redis("SET", `wl:ip:${ip}:${weekKey}`, "0")));
       return res.status(200).json({ success: true, message: `Reset ${ipList.length} users.` });
     }
     return res.status(400).json({ error: "Provide maskedIp=__all__" });
   }
 
   return res.status(404).json({ error: "Unknown action" });
-}
+};
