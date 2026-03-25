@@ -1,0 +1,19 @@
+{
+  "name": "worrkly-lens",
+  "version": "1.0.0",
+  "description": "Worrkly Lens — AI Content Detection Tool",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0"
+  },
+  "devDependencies": {
+    "vercel": "^33.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
